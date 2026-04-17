@@ -49,7 +49,7 @@ RUN curl -sSL https://raw.githubusercontent.com/ros/rosdistro/master/ros.key \
     && rm -rf /var/lib/apt/lists/*
 
 # ── rosbags (Python tool to convert ROS 1 bags to ROS 2 format) ──────────────
-RUN pip3 install --no-cache-dir rosbags
+RUN pip3 install --no-cache-dir "rosbags==0.9.22"
 
 # ── Ceres Solver 2.1.0 (required by D-LIO) ───────────────────────────────────
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -93,7 +93,8 @@ RUN source /opt/ros/humble/setup.bash && \
 ARG UID=1000
 ARG GID=1000
 RUN groupadd -g $GID ros && \
-    useradd -m -u $UID -g $GID -s /bin/bash ros
+    useradd -m -u $UID -g $GID -s /bin/bash ros && \
+    chown -R $UID:$GID /ros2_ws
 
 RUN echo "source /opt/ros/humble/setup.bash"    >> /root/.bashrc && \
     echo "source /ros2_ws/install/setup.bash"    >> /root/.bashrc && \

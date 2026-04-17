@@ -181,9 +181,8 @@ int main(int argc, char **argv)
             double qw = odom_msg.pose.pose.orientation.w;
 
             TrajectoryPose pose;
-            uint64_t sec_ns = static_cast<uint64_t>(odom_msg.header.stamp.sec) * 1'000'000'000ULL;
-            uint64_t nsec = static_cast<uint64_t>(odom_msg.header.stamp.nanosec);
-            pose.timestamp_ns = sec_ns + nsec;
+            // Use bag-level receive timestamp (consistent with cloud timestamps)
+            pose.timestamp_ns = static_cast<uint64_t>(serialized_msg->time_stamp);
 
             pose.x_m = x;
             pose.y_m = y;
@@ -215,9 +214,8 @@ int main(int argc, char **argv)
             rclcpp::SerializedMessage extracted_msg(*serialized_msg->serialized_data);
             cloud_serializer.deserialize_message(&extracted_msg, &entry.cloud);
 
-            uint64_t sec_ns = static_cast<uint64_t>(entry.cloud.header.stamp.sec) * 1'000'000'000ULL;
-            uint64_t nsec = static_cast<uint64_t>(entry.cloud.header.stamp.nanosec);
-            entry.timestamp_ns = sec_ns + nsec;
+            // Use bag-level receive timestamp since D-LIO doesn't set cloud header.stamp
+            entry.timestamp_ns = static_cast<uint64_t>(serialized_msg->time_stamp);
 
             clouds.push_back(std::move(entry));
         }
@@ -225,6 +223,13 @@ int main(int argc, char **argv)
 
     std::cout << "Read " << trajectory.size() << " odometry poses and "
               << clouds.size() << " point clouds." << std::endl;
+
+    if (!trajectory.empty() && !clouds.empty()) {
+        std::cout << "DEBUG: odom  timestamp range: [" << trajectory.front().timestamp_ns
+                  << " .. " << trajectory.back().timestamp_ns << "]" << std::endl;
+        std::cout << "DEBUG: cloud timestamp range: [" << clouds.front().timestamp_ns
+                  << " .. " << clouds.back().timestamp_ns << "]" << std::endl;
+    }
 
     if (trajectory.empty() || clouds.empty()) {
         std::cerr << "Error: no odometry or cloud data found in bag!" << std::endl;
@@ -326,16 +331,24 @@ int main(int argc, char **argv)
         if(i % 1000 == 0){
             std::cout << "computing [" << i + 1 << "] of: " << trajectory.size() << std::endl;
         }
+        bool assigned = false;
         for (int j = 0; j < chunks_pc.size(); j++)
         {
             if (chunks_pc[j].size() > 0)
             {
                 if (trajectory[i].timestamp_ns >= chunks_pc[j][0].timestamp &&
-                    trajectory[i].timestamp_ns < chunks_pc[j][chunks_pc[j].size() - 1].timestamp)
+                    trajectory[i].timestamp_ns <= chunks_pc[j][chunks_pc[j].size() - 1].timestamp)
                 {
                     chunks_trajectory[j].push_back(trajectory[i]);
+                    assigned = true;
+                    break;
                 }
             }
+        }
+        if (!assigned && i < 5) {
+            std::cout << "DEBUG: trajectory[" << i << "] ts=" << trajectory[i].timestamp_ns
+                      << " not matched. chunk[0] range=[" << chunks_pc[0][0].timestamp
+                      << ".." << chunks_pc[0].back().timestamp << "]" << std::endl;
         }
     }
 
@@ -399,7 +412,12 @@ int main(int argc, char **argv)
             cc++;
         }
     }
-    offset /= cc;
+    if (cc > 0) {
+        offset /= cc;
+    } else {
+        std::cerr << "WARNING: No trajectory elements matched any chunk! Using offset=0." << std::endl;
+        std::cerr << "This means timestamp domains don't overlap between odom and cloud." << std::endl;
+    }
 
     // ── Save LAZ files and trajectory CSVs ───────────────────────────────────
     std::vector<Eigen::Affine3d> m_poses;
@@ -505,11 +523,11 @@ int main(int argc, char **argv)
     j["offset_x"] = 0.0;
     j["offset_y"] = 0.0;
     j["offset_z"] = 0.0;
-    j["folder_name"] = outwd;
-    j["out_folder_name"] = outwd;
-    j["poses_file_name"] = path2.string();
-    j["initial_poses_file_name"] = path.string();
-    j["out_poses_file_name"] = path2.string();
+    j["folder_name"] = outwd.string();
+    j["out_folder_name"] = outwd.string();
+    j["poses_file_name"] = (outwd / "poses.reg").string();
+    j["initial_poses_file_name"] = (outwd / "lio_initial_poses.reg").string();
+    j["out_poses_file_name"] = (outwd / "poses.reg").string();
     j["lidar_odometry_version"] = "HdMap";
 
     jj["Session Settings"] = j;

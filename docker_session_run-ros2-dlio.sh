@@ -4,7 +4,7 @@ IMAGE_NAME='dlio_humble'
 TMUX_SESSION='ros2_dlio'
 
 DATASET_CONTAINER_PATH='/ros2_ws/dataset/input.bag'
-DATASET_ROS2_PATH='/ros2_ws/dataset/input'
+DATASET_ROS2_PATH='/tmp/dataset_ros2'
 BAG_OUTPUT_CONTAINER='/ros2_ws/recordings'
 
 RECORDED_BAG_NAME="recorded-dlio"
@@ -14,7 +14,7 @@ LIDAR_TOPIC=/livox/pointcloud
 IMU_TOPIC=/livox/imu
 HZ_CLOUD=10.0
 HZ_IMU=200.0
-LIDAR_TYPE=ouster
+LIDAR_TYPE=livox
 CALIBRATION_TIME=1.0
 
 usage() {
@@ -96,20 +96,35 @@ docker run -it --rm \
     # ── Convert ROS 1 bag to ROS 2 format if needed ──
     if [[ "'"$DATASET_CONTAINER_PATH"'" == *.bag ]]; then
       echo "[convert] Converting ROS 1 bag to ROS 2 format..."
+      echo "[convert] Input: '"$DATASET_CONTAINER_PATH"'"
+      ls -la "'"$DATASET_CONTAINER_PATH"'" || { echo "[convert] ERROR: input bag not found!"; exit 1; }
+      rm -rf "'"$DATASET_ROS2_PATH"'"
       rosbags-convert "'"$DATASET_CONTAINER_PATH"'" --dst "'"$DATASET_ROS2_PATH"'"
+      if [[ ! -d "'"$DATASET_ROS2_PATH"'" ]]; then
+        echo "[convert] ERROR: rosbags-convert failed! Output not created."
+        exit 1
+      fi
       ROS2_BAG="'"$DATASET_ROS2_PATH"'"
     else
       ROS2_BAG="'"$DATASET_CONTAINER_PATH"'"
     fi
 
+    export ROS2_BAG
     echo "[convert] ROS 2 bag ready at: $ROS2_BAG"
+    ls -la $ROS2_BAG/
 
     tmux new-session -d -s '"$TMUX_SESSION"'
 
-    # ---------- PANE 0: D-LIO node ----------
+    # ---------- PANE 0: D-LIO node + static TF ----------
     tmux send-keys -t '"$TMUX_SESSION"' '\''
 source /opt/ros/humble/setup.bash
 source /ros2_ws/install/setup.bash
+
+# Publish identity static transforms: common sensor frames -> base_link
+ros2 run tf2_ros static_transform_publisher 0 0 0 0 0 0 base_link livox_frame --ros-args -p use_sim_time:=true &
+ros2 run tf2_ros static_transform_publisher 0 0 0 0 0 0 base_link imu_link --ros-args -p use_sim_time:=true &
+echo "[tf] Static transforms published (livox_frame, imu_link -> base_link)"
+
 sleep 3
 ros2 run dlio dlio_node --ros-args \
   -p in_cloud:='"$LIDAR_TOPIC"' \
@@ -121,6 +136,10 @@ ros2 run dlio dlio_node --ros-args \
   -p base_frame_id:=base_link \
   -p odom_frame_id:=odom \
   -p use_sim_time:=true \
+  -p gyr_dev:=0.00117396706572 \
+  -p gyr_rw_dev:=2.66e-07 \
+  -p acc_dev:=0.0115432018302 \
+  -p acc_rw_dev:=0.0000333 \
   -p keyframe_dist:=1.0 \
   -p keyframe_rot:=0.5 \
   -p tdfGridSizeX_low:=-30.0 \
@@ -130,7 +149,7 @@ ros2 run dlio dlio_node --ros-args \
   -p tdfGridSizeZ_low:=-30.0 \
   -p tdfGridSizeZ_high:=30.0 \
   -p solver_max_iter:=100 \
-  -p solver_max_threads:=20 \
+  -p solver_max_threads:=12 \
   -p min_range:=1.0 \
   -p max_range:=100.0 \
   -p leaf_size:=-1.0 \
@@ -138,11 +157,21 @@ ros2 run dlio dlio_node --ros-args \
   -p timestamp_mode:=START_OF_SCAN
 '\'' C-m
 
-    # ---------- PANE 1: ros2 bag record ----------
+    # ---------- PANE 1: RViz visualization ----------
     tmux split-window -v -t '"$TMUX_SESSION"'
     tmux send-keys -t '"$TMUX_SESSION"' '\''sleep 2
 source /opt/ros/humble/setup.bash
 source /ros2_ws/install/setup.bash
+echo "[rviz] launching RViz2..."
+rviz2 -d /ros2_ws/install/dlio/share/dlio/launch/default.rviz --ros-args -p use_sim_time:=true
+'\'' C-m
+
+    # ---------- PANE 2: ros2 bag record ----------
+    tmux split-window -v -t '"$TMUX_SESSION"'
+    tmux send-keys -t '"$TMUX_SESSION"' '\''sleep 2
+source /opt/ros/humble/setup.bash
+source /ros2_ws/install/setup.bash
+rm -rf '"$BAG_OUTPUT_CONTAINER/$RECORDED_BAG_NAME"'
 echo "[record] start"
 ros2 bag record /odometry_pose /cloud -o '"$BAG_OUTPUT_CONTAINER/$RECORDED_BAG_NAME"'
 echo "[record] exit"
@@ -154,7 +183,7 @@ echo "[record] exit"
 source /opt/ros/humble/setup.bash
 source /ros2_ws/install/setup.bash
 echo "[play] start"
-ros2 bag play '"$ROS2_BAG"' --clock; tmux wait-for -S BAG_DONE;
+ros2 bag play $ROS2_BAG --clock; tmux wait-for -S BAG_DONE;
 echo "[play] done"
 '\'' C-m
 
@@ -200,15 +229,19 @@ source /ros2_ws/install/setup.bash
 echo "[control] waiting for play end"
 tmux wait-for BAG_DONE
 echo "[control] stop record"
-tmux send-keys -t '"$TMUX_SESSION"'.1 C-c
+tmux send-keys -t '"$TMUX_SESSION"':0.2 C-c
 
 sleep 5
 echo "[control] shutting down nodes"
+pkill -f rviz2 || true
 ros2 lifecycle set /dlio_node shutdown 2>/dev/null || true
 pkill -f dlio_node || true
+pkill -f static_transform_publisher || true
 
-sleep 5
+sleep 3
+echo "[control] closing tmux session"
 pkill -f ros2 || true
+tmux kill-server
 '\''
 
     tmux attach -t '"$TMUX_SESSION"'
