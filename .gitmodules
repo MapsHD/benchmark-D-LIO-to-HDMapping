@@ -1,0 +1,6 @@
+[submodule "src/D-LIO"]
+	path = src/D-LIO
+	url = https://github.com/robotics-upo/D-LIO.git
+[submodule "src/dlio-to-hdmapping/src/3rdparty/LASzip"]
+	path = src/dlio-to-hdmapping/src/3rdparty/LASzip
+	url = https://github.com/LASzip/LASzip.git
