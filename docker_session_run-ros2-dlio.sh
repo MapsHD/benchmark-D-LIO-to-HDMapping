@@ -1,13 +1,13 @@
 #!/bin/bash
 
-IMAGE_NAME='dlio_humble'
-TMUX_SESSION='ros2_dlio'
+IMAGE_NAME='D-LIO_humble'
+TMUX_SESSION='ros2_D-LIO'
 
 DATASET_CONTAINER_PATH='/ros2_ws/dataset/input.bag'
 DATASET_ROS2_PATH='/tmp/dataset_ros2'
 BAG_OUTPUT_CONTAINER='/ros2_ws/recordings'
 
-RECORDED_BAG_NAME="recorded-dlio"
+RECORDED_BAG_NAME="recorded-D-LIO"
 HDMAPPING_OUT_NAME="output_hdmapping"
 
 LIDAR_TOPIC=/livox/pointcloud
@@ -275,7 +275,7 @@ docker run -it --rm \
     source /ros2_ws/install/setup.bash
     ros2 run dlio-to-hdmapping listener \
       \"$BAG_OUTPUT_CONTAINER/$RECORDED_BAG_NAME\" \
-      \"$BAG_OUTPUT_CONTAINER/$HDMAPPING_OUT_NAME-dlio\"
+      \"$BAG_OUTPUT_CONTAINER/$HDMAPPING_OUT_NAME-D-LIO\"
   "
 
 echo "=== DONE ==="
