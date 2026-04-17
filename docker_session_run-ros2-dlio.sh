@@ -141,8 +141,8 @@ ros2 run dlio dlio_node --ros-args \
   -p acc_dev:=0.0115432018302 \
   -p acc_rw_dev:=0.0000333 \
   -p keyframe_dist:=1.0 \
-  -p keyframe_rot:=0.5 \
-  -p tdfGridSizeX_low:=-30.0 \
+  -p keyframe_rot:=25.0 \
+  -p tdfGridSizeX_low:=-100.0 \
   -p tdfGridSizeX_high:=100.0 \
   -p tdfGridSizeY_low:=-100.0 \
   -p tdfGridSizeY_high:=100.0 \
@@ -153,6 +153,7 @@ ros2 run dlio dlio_node --ros-args \
   -p min_range:=1.0 \
   -p max_range:=100.0 \
   -p leaf_size:=-1.0 \
+  -p robust_kernel_scale:=5.0 \
   -p maxCells:=100000 \
   -p timestamp_mode:=START_OF_SCAN
 '\'' C-m
@@ -228,19 +229,29 @@ source /opt/ros/humble/setup.bash
 source /ros2_ws/install/setup.bash
 echo "[control] waiting for play end"
 tmux wait-for BAG_DONE
-echo "[control] stop record"
-tmux send-keys -t '"$TMUX_SESSION"':0.2 C-c
+echo "[control] bag playback finished — shutting down"
 
-sleep 5
-echo "[control] shutting down nodes"
-pkill -f rviz2 || true
-ros2 lifecycle set /dlio_node shutdown 2>/dev/null || true
-pkill -f dlio_node || true
-pkill -f static_transform_publisher || true
-
+# Give D-LIO a moment to process remaining queued scans
 sleep 3
-echo "[control] closing tmux session"
-pkill -f ros2 || true
+
+# Graceful stop: Ctrl+C to each pane
+# Pane layout: 0=D-LIO+TF, 1=rviz, 2=recorder, 3=play, 4=diag
+echo "[control] sending Ctrl+C to all panes..."
+tmux send-keys -t '"$TMUX_SESSION"':0.2 C-c
+sleep 1
+tmux send-keys -t '"$TMUX_SESSION"':0.1 C-c
+sleep 1
+tmux send-keys -t '"$TMUX_SESSION"':0.0 C-c
+sleep 3
+
+# Force-kill by process name (NOT -f which matches cmdline text of this shell!)
+echo "[control] force-killing remaining processes..."
+pkill -9 dlio_node 2>/dev/null || true
+pkill -9 rviz2 2>/dev/null || true
+pkill -9 static_transform_publisher 2>/dev/null || true
+sleep 1
+
+echo "[control] terminating tmux"
 tmux kill-server
 '\''
 
