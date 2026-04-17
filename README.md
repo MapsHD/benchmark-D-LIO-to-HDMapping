@@ -1,12 +1,12 @@
 ## Hint
 
-Please change branch to [Bunker-DVI-Dataset-reg-1](https://github.com/MapsHD/benchmark-DLIO-to-HDMapping/tree/Bunker-DVI-Dataset-reg-1) for quick experiment.
+Please change branch to [Bunker-DVI-Dataset-reg-1](https://github.com/MapsHD/benchmark-D-LIO-to-HDMapping/tree/Bunker-DVI-Dataset-reg-1) for quick experiment.
 
 ## Example Dataset:
 
 Download the dataset from [Bunker DVI Dataset](https://charleshamesse.github.io/bunker-dvi-dataset/)
 
-# benchmark-DLIO-to-HDMapping
+# benchmark-D-LIO-to-HDMapping
 
 Runs the [D-LIO](https://github.com/robotics-upo/D-LIO) LiDAR-Inertial odometry algorithm on a ROS 2 bag
 file and converts the output to an [HDMapping](https://github.com/MapsHD/HDMapping) session.
@@ -23,14 +23,14 @@ based on Fast Truncated Distance Fields (FTDF), from Universidad Pablo de Olavid
 ## Step 1 — Clone with submodules
 
 ```bash
-git clone https://github.com/MapsHD/benchmark-DLIO-to-HDMapping.git --recursive
-cd benchmark-DLIO-to-HDMapping
+git clone https://github.com/MapsHD/benchmark-D-LIO-to-HDMapping.git --recursive
+cd benchmark-D-LIO-to-HDMapping
 ```
 
 ## Step 2 — Build the Docker image
 
 ```bash
-docker build -t dlio_humble .
+docker build -t d-lio_humble .
 ```
 
 This installs:
@@ -39,7 +39,7 @@ This installs:
 - ANN library (built from source)
 - Eigen3, PCL, Boost, OpenMP
 - D-LIO (compiled from submodule)
-- ROS 2 workspace with `dlio` and `dlio-to-hdmapping`
+- ROS 2 workspace with `D-LIO` and `D-LIO-to-hdmapping`
 
 The build takes several minutes on first run.
 
@@ -58,21 +58,25 @@ Or with no arguments to use a GUI file selector (requires `zenity`):
 
 **What happens:**
 
-The script opens a Docker container with a tmux session containing four panes:
+The script opens a Docker container with a tmux session containing five panes
+and a control window:
 
 | Pane | Role |
 |------|------|
-| 0 | D-LIO node — reads point cloud + IMU topics, publishes `/odometry_pose` + `/cloud` |
-| 1 | `ros2 bag record` — captures the two published topics |
-| 2 | `ros2 bag play` — plays your input bag with simulated clock |
-| 3 | diagnostics — shows active topics and publishing rates |
+| 0 | D-LIO node + static TF publishers — reads point cloud + IMU topics, publishes `/odometry_pose` + `/cloud` |
+| 1 | RViz2 — live visualization of the D-LIO map and trajectory |
+| 2 | `ros2 bag record` — captures the two published topics |
+| 3 | `ros2 bag play` — plays your input bag with simulated clock |
+| 4 | diagnostics — shows active topics and publishing rates |
+| control | auto-shutdown — waits for playback to finish, then stops all nodes |
 
-After playback completes, recording is stopped and a second Docker run converts
-the recorded bag into the HDMapping session format.
+After playback completes, the control window automatically stops the recorder,
+kills all nodes, and exits tmux. A second Docker run then converts the recorded
+bag into the HDMapping session format.
 
 ## Step 4 — Open in HDMapping
 
-Output files appear in `<output_dir>/output_hdmapping-dlio/`:
+Output files appear in `<output_dir>/output_hdmapping-D-LIO/`:
 
 ```
 lio_initial_poses.reg
@@ -95,11 +99,11 @@ D-LIO requires both LiDAR point clouds and IMU data. Key parameters to adjust fo
 
 | Parameter | Description | Default |
 |-----------|-------------|---------|
-| `in_cloud` | Input PointCloud2 topic | `/cloud` |
-| `in_imu` | Input IMU topic | `/imu` |
+| `in_cloud` | Input PointCloud2 topic | `/livox/pointcloud` |
+| `in_imu` | Input IMU topic | `/livox/imu` |
 | `hz_cloud` | LiDAR frequency (Hz) | `10.0` |
-| `hz_imu` | IMU frequency (Hz) | `100.0` |
-| `lidar_type` | Sensor type (`ouster`, `hesai`) | `ouster` |
+| `hz_imu` | IMU frequency (Hz) | `200.0` |
+| `lidar_type` | Sensor type (`ouster`, `hesai`, `livox`) | `livox` |
 | `min_range` / `max_range` | Distance filter (m) | `1.0` / `100.0` |
 | `calibration_time` | Static calibration time (s) | `1.0` |
 
