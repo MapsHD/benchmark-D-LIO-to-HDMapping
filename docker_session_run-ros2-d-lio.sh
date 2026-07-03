@@ -19,7 +19,11 @@ CALIBRATION_TIME=1.0
 
 usage() {
   echo "Usage:"
-  echo "  $0 <input.bag> <output_dir>"
+  echo "  $0 <input.bag | ros2_bag_dir> <output_dir>"
+  echo
+  echo "  input.bag    : ROS 1 bag file — converted to ROS 2 format on the fly"
+  echo "  ros2_bag_dir : ROS 2 bag directory — played directly, no conversion"
+  echo "                 (this is what the HDMapping orchestration passes)"
   echo
   echo "If no arguments are provided, a GUI file selector will be used."
   echo
@@ -58,8 +62,8 @@ if [[ -z "$DATASET_HOST_PATH" || -z "$BAG_OUTPUT_HOST" ]]; then
   exit 1
 fi
 
-if [[ ! -f "$DATASET_HOST_PATH" ]]; then
-  echo "Error: BAG file does not exist: $DATASET_HOST_PATH"
+if [[ ! -f "$DATASET_HOST_PATH" && ! -d "$DATASET_HOST_PATH" ]]; then
+  echo "Error: BAG path does not exist: $DATASET_HOST_PATH"
   exit 1
 fi
 
@@ -68,7 +72,16 @@ mkdir -p "$BAG_OUTPUT_HOST"
 DATASET_HOST_PATH=$(realpath "$DATASET_HOST_PATH")
 BAG_OUTPUT_HOST=$(realpath "$BAG_OUTPUT_HOST")
 
+# Orchestration convention: a directory input is an already-converted ROS 2 bag
+# (played directly); a file input is a ROS 1 .bag (converted on the fly).
+if [[ -d "$DATASET_HOST_PATH" ]]; then
+  INPUT_IS_DIR=1
+else
+  INPUT_IS_DIR=0
+fi
+
 echo "Input bag   : $DATASET_HOST_PATH"
+echo "Input type  : $([[ $INPUT_IS_DIR == 1 ]] && echo 'ROS 2 bag directory (no conversion)' || echo 'ROS 1 bag file (convert to ROS 2)')"
 echo "Output dir  : $BAG_OUTPUT_HOST"
 echo "LiDAR topic : $LIDAR_TOPIC"
 echo "IMU topic   : $IMU_TOPIC"
@@ -83,6 +96,7 @@ docker run -it --rm \
   --network host \
   -e DISPLAY=$DISPLAY \
   -e ROS_HOME=/tmp/.ros \
+  -e INPUT_IS_DIR="${INPUT_IS_DIR}" \
   -u 1000:1000 \
   -v /tmp/.X11-unix:/tmp/.X11-unix \
   -v "$DATASET_HOST_PATH":"$DATASET_CONTAINER_PATH":ro \
@@ -94,7 +108,15 @@ docker run -it --rm \
     source /ros2_ws/install/setup.bash
 
     # ── Convert ROS 1 bag to ROS 2 format if needed ──
-    if [[ "'"$DATASET_CONTAINER_PATH"'" == *.bag ]]; then
+    # INPUT_IS_DIR is decided on the host by the real input type: a directory
+    # is an already-converted ROS 2 bag (orchestration passes these), a file
+    # is a ROS 1 .bag that still needs conversion. (The old check tested the
+    # fixed container mount path, which always ends in .bag, so it converted
+    # unconditionally and broke on ROS 2 directory inputs.)
+    if [[ "$INPUT_IS_DIR" == "1" ]]; then
+      echo "[convert] Input is already a ROS 2 bag directory — skipping conversion."
+      ROS2_BAG="'"$DATASET_CONTAINER_PATH"'"
+    else
       echo "[convert] Converting ROS 1 bag to ROS 2 format..."
       echo "[convert] Input: '"$DATASET_CONTAINER_PATH"'"
       ls -la "'"$DATASET_CONTAINER_PATH"'" || { echo "[convert] ERROR: input bag not found!"; exit 1; }
@@ -105,8 +127,6 @@ docker run -it --rm \
         exit 1
       fi
       ROS2_BAG="'"$DATASET_ROS2_PATH"'"
-    else
-      ROS2_BAG="'"$DATASET_CONTAINER_PATH"'"
     fi
 
     export ROS2_BAG

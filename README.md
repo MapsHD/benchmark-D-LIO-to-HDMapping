@@ -20,9 +20,9 @@ docker build -t d-lio_humble .
 ## Step 3 (run docker, file 'reg-1.bag-pc.bag' should be in '~/hdmapping-benchmark/data')
 ```shell
 cd ~/hdmapping-benchmark/benchmark-D-LIO-to-HDMapping
-chmod +x docker_session_run-ros2-dlio.sh
+chmod +x docker_session_run-ros2-d-lio.sh
 cd ~/hdmapping-benchmark/data
-~/hdmapping-benchmark/benchmark-D-LIO-to-HDMapping/docker_session_run-ros2-dlio.sh reg-1.bag-pc.bag .
+~/hdmapping-benchmark/benchmark-D-LIO-to-HDMapping/docker_session_run-ros2-d-lio.sh reg-1.bag-pc.bag .
 ```
 
 ## Step 4 (Open and visualize data)
