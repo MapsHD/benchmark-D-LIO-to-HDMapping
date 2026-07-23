@@ -163,6 +163,18 @@ int main(int argc, char **argv)
     };
     std::vector<CloudEntry> clouds;
 
+    // D-LIO's ros2 bag record stamps each message with the bag *receive* time
+    // (wall clock at record time), not the sensor time. Left as-is, the exported
+    // trajectory lands in the epoch when the bag was played (e.g. 2026) instead
+    // of the dataset's own epoch (e.g. 2024), so it can't be aligned with the
+    // ground truth. The odometry message header, however, DOES carry the sensor
+    // time. We recover the constant (receive - sensor) offset from the first
+    // odometry message and subtract it from every timestamp after reading; being
+    // a single constant, it preserves all relative timing and the cloud<->pose
+    // association below.
+    int64_t clock_offset_ns = 0;
+    bool clock_offset_set = false;
+
     while (reader.has_next()) {
         auto serialized_msg = reader.read_next();
 
@@ -170,6 +182,18 @@ int main(int argc, char **argv)
             nav_msgs::msg::Odometry odom_msg;
             rclcpp::SerializedMessage extracted_msg(*serialized_msg->serialized_data);
             odom_serializer.deserialize_message(&extracted_msg, &odom_msg);
+
+            // Recover the wall-clock -> sensor offset from the first odom whose
+            // header stamp is set (the header carries the true sensor time).
+            if (!clock_offset_set) {
+                uint64_t header_ns = static_cast<uint64_t>(odom_msg.header.stamp.sec) * 1000000000ULL
+                                   + static_cast<uint64_t>(odom_msg.header.stamp.nanosec);
+                if (header_ns != 0) {
+                    clock_offset_ns = static_cast<int64_t>(serialized_msg->time_stamp)
+                                    - static_cast<int64_t>(header_ns);
+                    clock_offset_set = true;
+                }
+            }
 
             double x = odom_msg.pose.pose.position.x;
             double y = odom_msg.pose.pose.position.y;
@@ -181,7 +205,8 @@ int main(int argc, char **argv)
             double qw = odom_msg.pose.pose.orientation.w;
 
             TrajectoryPose pose;
-            // Use bag-level receive timestamp (consistent with cloud timestamps)
+            // Store the raw bag receive timestamp; it is shifted into the sensor
+            // epoch (by clock_offset_ns) after the read loop below.
             pose.timestamp_ns = static_cast<uint64_t>(serialized_msg->time_stamp);
 
             pose.x_m = x;
@@ -214,11 +239,28 @@ int main(int argc, char **argv)
             rclcpp::SerializedMessage extracted_msg(*serialized_msg->serialized_data);
             cloud_serializer.deserialize_message(&extracted_msg, &entry.cloud);
 
-            // Use bag-level receive timestamp since D-LIO doesn't set cloud header.stamp
+            // Raw bag receive timestamp (D-LIO doesn't set cloud header.stamp);
+            // shifted into the sensor epoch (by clock_offset_ns) after the loop.
             entry.timestamp_ns = static_cast<uint64_t>(serialized_msg->time_stamp);
 
             clouds.push_back(std::move(entry));
         }
+    }
+
+    // Shift every timestamp from the bag-receive (wall-clock) epoch into the
+    // dataset (sensor) epoch, so the exported trajectory can be aligned with the
+    // ground truth. The offset is a single constant, so all relative timing —
+    // and the cloud<->pose association below — is preserved exactly.
+    if (clock_offset_set && clock_offset_ns > 0) {
+        const uint64_t off = static_cast<uint64_t>(clock_offset_ns);
+        for (auto& p : trajectory) p.timestamp_ns -= off;
+        for (auto& c : clouds)     c.timestamp_ns -= off;
+        std::cout << "Applied clock offset of " << clock_offset_ns
+                  << " ns (bag-receive -> sensor epoch)" << std::endl;
+    } else {
+        std::cout << "WARNING: no odometry header stamp found; timestamps left in the "
+                     "bag-receive epoch (result may not align with ground truth)."
+                  << std::endl;
     }
 
     std::cout << "Read " << trajectory.size() << " odometry poses and "
