@@ -141,9 +141,13 @@ source /opt/ros/humble/setup.bash
 source /ros2_ws/install/setup.bash
 
 # Publish identity static transforms: common sensor frames -> base_link
+# The /livox/imu messages in this dataset carry frame_id "livox" (not
+# "imu_link"), so a transform for that exact frame is required, or every
+# IMU TF lookup in D-LIO fails and it silently never processes any data.
 ros2 run tf2_ros static_transform_publisher 0 0 0 0 0 0 base_link livox_frame --ros-args -p use_sim_time:=true &
 ros2 run tf2_ros static_transform_publisher 0 0 0 0 0 0 base_link imu_link --ros-args -p use_sim_time:=true &
-echo "[tf] Static transforms published (livox_frame, imu_link -> base_link)"
+ros2 run tf2_ros static_transform_publisher 0 0 0 0 0 0 base_link livox --ros-args -p use_sim_time:=true &
+echo "[tf] Static transforms published (livox_frame, imu_link, livox -> base_link)"
 
 sleep 3
 ros2 run dlio dlio_node --ros-args \
